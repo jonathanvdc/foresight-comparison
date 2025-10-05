@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::fmt::Display;
 use std::path;
+use std::env;
 
 use egg::Id;
 
@@ -226,48 +227,53 @@ fn mm(n: usize) -> (DimAndCost, RecExpr<Linalg>){
     extractor.find_best(root)
 }
 
-fn median(v: &mut Vec<u128>) -> u128 {
-    v.sort();
-    let mid = v.len() / 2;
-    if v.len() % 2 == 0 {
-        (v[mid - 1] + v[mid]) / 2
-    } else {
-        v[mid]
+fn average_ms(times: &[u128]) -> f64 {
+    if times.is_empty() {
+        return 0.0;
     }
+    let total_micros: u128 = times.iter().copied().sum();
+    (total_micros as f64 / times.len() as f64) / 1000.0
 }
 
 fn main() {
-    let total_time = 60; // seconds
+    // Parse the number of seconds to run from the first CLI argument; default to 60 if not provided/invalid.
+    let args: Vec<String> = env::args().collect();
+    let total_time: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(60);
+
+    let mut results: Vec<(String, f64)> = Vec::new();
+
+    // Benchmark poly5
     {
-        println!("## Benchmarking poly5 for 60 seconds.");
+        let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
-        let mut times = vec![];
         let end = start + std::time::Duration::from_secs(total_time);
         while std::time::Instant::now() < end {
             let time_start = std::time::Instant::now();
-            let (best_cost, best_expr) = poly();
-            println!("Best expression: {}, cost: {}", best_expr, best_cost);
-            let time_end = std::time::Instant::now();
-            let duration = time_end.duration_since(time_start);
+            let (_best_cost, _best_expr) = poly();
+            let duration = std::time::Instant::now().duration_since(time_start);
             times.push(duration.as_micros());
         }
-        println!("Completed {} runs.", times.len());
-        println!("Median time per iteration: {}ms", median(&mut times) as f64 / 1000.0);
+        results.push(("poly5".to_string(), average_ms(&times)));
     }
 
-    for n in [3, 5, 10, 20, 40, 80] {
-        println!("## Benchmarking {}mm for 60 seconds.", n);
-        let mut times = vec![];
+    // Benchmark matrix-chain multiplications
+    let mm_sizes = [80usize]; // [3usize, 5, 10, 20, 40, 80];
+    for &n in mm_sizes.iter() {
+        let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
         let end = start + std::time::Duration::from_secs(total_time);
         while std::time::Instant::now() < end {
             let time_start = std::time::Instant::now();
-            let (_, best_expr) = mm(n);
-            let time_end = std::time::Instant::now();
-            let duration = time_end.duration_since(time_start);
+            let (_best_dim_cost, _best_expr) = mm(n);
+            let duration = std::time::Instant::now().duration_since(time_start);
             times.push(duration.as_micros());
         }
-        println!("Completed {} runs.", times.len());
-        println!("Median time per iteration: {}ms", median(&mut times) as f64 / 1000.0);
+        results.push((format!("mm{}", n), average_ms(&times)));
+    }
+
+    // Print CSV output
+    println!("benchmark,avg_ms");
+    for (name, avg_ms) in results {
+        println!("{},{}", name, avg_ms);
     }
 }
