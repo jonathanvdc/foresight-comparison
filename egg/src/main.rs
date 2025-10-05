@@ -1,4 +1,3 @@
-use std::str::FromStr;
 use std::fmt::Display;
 use std::path;
 use std::env;
@@ -6,8 +5,6 @@ use std::env;
 use egg::Id;
 
 use egg::*;
-
-use egg::FromOp;
 
 define_language! {
     enum Expr {
@@ -94,27 +91,27 @@ impl CostFunction<Linalg> for LinalgCost {
 
 }
 
-fn render_egraph<L: Language + Display, N: Analysis<L>>(
-    egraph: &EGraph<L, N>,
-    dir: &str,
-    name: &str,
-) {
-    // render the e-graph as a dot file
-    let dot_filename = format!("{}/{}.dot", dir, name);
-    let png_filename = format!("{}/{}.png", dir, name);
+// fn render_egraph<L: Language + Display, N: Analysis<L>>(
+//     egraph: &EGraph<L, N>,
+//     dir: &str,
+//     name: &str,
+// ) {
+//     // render the e-graph as a dot file
+//     let dot_filename = format!("{}/{}.dot", dir, name);
+//     let png_filename = format!("{}/{}.png", dir, name);
 
-    let path = path::Path::new(&dot_filename);
-    egraph.dot().to_dot(path).expect("Couldn't write e-graph to file");
+//     let path = path::Path::new(&dot_filename);
+//     egraph.dot().to_dot(path).expect("Couldn't write e-graph to file");
 
-    // render dot file into a png
-    std::process::Command::new("dot")
-        .arg("-Tpng")
-        .arg(&dot_filename)
-        .arg("-o")
-        .arg(&png_filename)
-        .output()
-        .expect("Couldn't render dot file to png");
-}
+//     // render dot file into a png
+//     std::process::Command::new("dot")
+//         .arg("-Tpng")
+//         .arg(&dot_filename)
+//         .arg("-o")
+//         .arg(&png_filename)
+//         .output()
+//         .expect("Couldn't render dot file to png");
+// }
 
 fn poly(n: usize) -> (usize, RecExpr<Expr>) {
     // Build a polynomial a0 + a1*x + a2*x^2 + ... + an*x^n
@@ -187,7 +184,7 @@ fn mm(n: usize) -> (DimAndCost, RecExpr<Linalg>){
 
     let c10 = mm.add(Linalg::Cst(10));
     let mut m = mm.add(Linalg::Mat([c10, c10])); // 10x10
-    for i in 1..=n {
+    for _i in 1..=n {
         let mi = mm.add(Linalg::Mat([c10, c10])); // 10x10
         m = mm.add(Linalg::Mul([m, mi])); // 10x10 * ix10
     }
