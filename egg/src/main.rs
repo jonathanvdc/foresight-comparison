@@ -116,49 +116,34 @@ fn render_egraph<L: Language + Display, N: Analysis<L>>(
         .expect("Couldn't render dot file to png");
 }
 
-fn poly() -> (usize, RecExpr<Expr>) {
+fn poly(n: usize) -> (usize, RecExpr<Expr>) {
+    // Build a polynomial a0 + a1*x + a2*x^2 + ... + an*x^n
     let mut poly: RecExpr<Expr> = RecExpr::default();
+
+    // Natural numbers 0..=n encoded as 0, succ(0), succ(succ(0)), ...
+    let mut ns: Vec<Id> = Vec::with_capacity(n + 1);
     let c0 = poly.add(Expr::Zero);
-    let c1 = poly.add(Expr::Succ(c0));
-    let c2 = poly.add(Expr::Succ(c1));
-    let c3 = poly.add(Expr::Succ(c2));
-    let c4 = poly.add(Expr::Succ(c3));
-    let c5 = poly.add(Expr::Succ(c4));
-    let a = poly.add(Expr::Var(Symbol::from("a")));
-    let b = poly.add(Expr::Var(Symbol::from("b")));
-    let c = poly.add(Expr::Var(Symbol::from("c")));
-    let d = poly.add(Expr::Var(Symbol::from("d")));
-    let e = poly.add(Expr::Var(Symbol::from("e")));
-    let f = poly.add(Expr::Var(Symbol::from("f")));
+    ns.push(c0);
+    for _i in 1..=n {
+        let prev = *ns.last().unwrap();
+        ns.push(poly.add(Expr::Succ(prev)));
+    }
+
+    // Variable x
     let x = poly.add(Expr::Var(Symbol::from("x")));
-    let bx = poly.add(Expr::Mul([b, x]));
 
-    let poly1 = poly.add(Expr::Add([bx, a]));
-    // print!("poly1: {}, cost: {}\n", poly, ExprCost.cost_rec(&poly));
-    // assert!(ExprCost.cost_rec(&poly) == 113);
+    // Start with constant term a0
+    let mut acc = poly.add(Expr::Var(Symbol::from("a0")));
 
-    let x2 = poly.add(Expr::Pow([x, c2]));
-    let cx2 = poly.add(Expr::Mul([c, x2]));
-    let poly2 = poly.add(Expr::Add([cx2, poly1]));
-    // print!("poly2: {}, cost: {}\n", poly, ExprCost.cost_rec(&poly));
-    // assert!(ExprCost.cost_rec(&poly) == 1228);
+    // Add higher-degree terms a_k * x^k
+    for k in 1..=n {
+        let ak = poly.add(Expr::Var(Symbol::from(format!("a{}", k))));
+        let xk = poly.add(Expr::Pow([x, ns[k]]));
+        let term = poly.add(Expr::Mul([ak, xk]));
+        acc = poly.add(Expr::Add([term, acc]));
+    }
 
-    let x3 = poly.add(Expr::Pow([x, c3]));
-    let dx3 = poly.add(Expr::Mul([d, x3]));
-    let poly3 = poly.add(Expr::Add([dx3, poly2]));
-    // print!("poly3: {}, cost: {}\n", poly, ExprCost.cost_rec(&poly));
-
-    let x4 = poly.add(Expr::Pow([x, c4]));
-    let ex4 = poly.add(Expr::Mul([e, x4]));
-    let poly4 = poly.add(Expr::Add([ex4, poly3]));
-    // print!("poly4: {}, cost: {}\n", poly, ExprCost.cost_rec(&poly));
-
-    let x5 = poly.add(Expr::Pow([x, c5]));
-    let fx5 = poly.add(Expr::Mul([f, x5]));
-    let poly5 = poly.add(Expr::Add([fx5, poly4]));
-    // print!("poly5: {}, cost: {}\n", poly, ExprCost.cost_rec(&poly));
-    // assert!(ExprCost.cost_rec(&poly) == 4579);
-
+    // Rewrites (same as before)
     let add_commutativity: Rewrite<Expr, ()> = rewrite!("add-comm"; "(+ ?a ?b)" => "(+ ?b ?a)");
     let mul_commutativity: Rewrite<Expr, ()> = rewrite!("mul-comm"; "(* ?a ?b)" => "(* ?b ?a)");
     let add_associativity1: Rewrite<Expr, ()> = rewrite!("add-assoc1"; "(+ (+ ?a ?b) ?c)" => "(+ ?a (+ ?b ?c))");
@@ -187,17 +172,11 @@ fn poly() -> (usize, RecExpr<Expr>) {
 
     let mut egraph = EGraph::<Expr, ()>::default();
     let root = egraph.add_expr(&poly);
-    // print!("Initial e-graph size: {}\n", egraph.total_size());
-    // render_egraph(&egraph, "res", "initial");
-    // egraph.rebuild();
 
     let runner = Runner::default()
         .with_egraph(egraph)
         .run(&rules);
     let new_egraph = runner.egraph;
-    // new_egraph.rebuild();
-    // print!("Final e-graph size: {}\n", new_egraph.total_size());
-    // render_egraph(&new_egraph, "res", "final");
 
     let extractor = Extractor::new(&new_egraph, ExprCost);
     extractor.find_best(root)
@@ -242,22 +221,23 @@ fn main() {
 
     let mut results: Vec<(String, f64)> = Vec::new();
 
-    // Benchmark poly5
-    {
+    // Benchmark poly
+    let poly_sizes = [5usize, 6];
+    for &n in poly_sizes.iter() {
         let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
         let end = start + std::time::Duration::from_secs(total_time);
         while std::time::Instant::now() < end {
             let time_start = std::time::Instant::now();
-            let (_best_cost, _best_expr) = poly();
+            let (_best_cost, _best_expr) = poly(n);
             let duration = std::time::Instant::now().duration_since(time_start);
             times.push(duration.as_micros());
         }
-        results.push(("poly5".to_string(), average_ms(&times)));
+        results.push((format!("poly{}", n), average_ms(&times)));
     }
 
     // Benchmark matrix-chain multiplications
-    let mm_sizes = [80usize]; // [3usize, 5, 10, 20, 40, 80];
+    let mm_sizes = [40usize, 80]; // [3usize, 5, 10, 20, 40, 80];
     for &n in mm_sizes.iter() {
         let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
