@@ -139,12 +139,12 @@ fn poly(degree: usize) {
     // print!("Initial e-graph size: {}\n", egraph.total_number_of_nodes());
 
     let mut runner = Runner::<Expr, ()>::default().with_egraph(egraph);
-    let report = runner.run(&rules);
+    let _report = runner.run(&rules);
     // print!("Final e-graph size: {}\n", runner.egraph.total_number_of_nodes());
 
     let extractor = Extractor::new(&runner.egraph, ExprCost);
     let best_expr = extractor.extract(&root, &runner.egraph);
-    let best_cost = ExprCost.cost_rec(&best_expr);
+    let _best_cost = ExprCost.cost_rec(&best_expr);
     // print!("Best expression: {}, cost: {}\n", best_expr, best_cost);
 }
 
