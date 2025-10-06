@@ -3,13 +3,15 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main (main) where
+module Bench.Poly (benchGroup) where
 
 import Criterion.Main
 import Data.Equality.Matching
 import Data.Equality.Saturation
 import Data.Equality.Saturation.Scheduler
 import Data.Equality.Utils
+
+-- Expression language
 
 data Expr a
   = Zero
@@ -33,16 +35,16 @@ prettyPrint (Fix (Add x y)) = "(" ++ prettyPrint x ++ "+" ++ prettyPrint y ++ ")
 prettyPrint (Fix (Mul x y)) = "(" ++ prettyPrint x ++ "*" ++ prettyPrint y ++ ")"
 prettyPrint (Fix (Pow x y)) = "(" ++ prettyPrint x ++ "^" ++ prettyPrint y ++ ")"
 
-cost :: CostFunction Expr Int
-cost Zero = 1
-cost (Succ x) = 1 + x
-cost (Var _) = 1
-cost (Add x y) = 10 + x + y
-cost (Mul x y) = 100 + x + y
-cost (Pow x y) = 1000 + x + y
+costPoly :: CostFunction Expr Int
+costPoly Zero = 1
+costPoly (Succ x) = 1 + x
+costPoly (Var _) = 1
+costPoly (Add x y) = 10 + x + y
+costPoly (Mul x y) = 100 + x + y
+costPoly (Pow x y) = 1000 + x + y
 
-rewrites :: [Rewrite () Expr]
-rewrites =
+rewritesPoly :: [Rewrite () Expr]
+rewritesPoly =
   [ pat (Add "x" "y") := pat (Add "y" "x"), -- add-commutative
     pat (Mul "x" "y") := pat (Mul "y" "x"), -- mul-commutative
     pat (Add (pat (Add "x" "y")) "z") := pat (Add "x" (pat (Add "y" "z"))), -- add-associative
@@ -56,54 +58,50 @@ rewrites =
     pat (Pow "x" (pat (Succ "n"))) := pat (Mul "x" (pat (Pow "x" "n"))) -- x^(n+1) = x * x^n
   ]
 
-rewrite :: Fix Expr -> Fix Expr
-rewrite expr = fst (equalitySaturation' (BackoffScheduler 0 0) expr rewrites cost)
+rewritePoly :: Fix Expr -> Fix Expr
+rewritePoly expr = fst (equalitySaturation' (BackoffScheduler 0 0) expr rewritesPoly costPoly)
 
-c0, c1, c2, c3, c4, c5 :: Expr (Fix Expr)
-c0 = Zero
+-- Helpers to build numbers and variables ---------------------------------------------------
 
-c1 = Succ (Fix c0)
+nat :: Int -> Fix Expr
+nat n
+  | n < 0 = error "nat: negative"
+  | n == 0 = Fix Zero
+  | otherwise = Fix (Succ (nat (n - 1)))
 
-c2 = Succ (Fix c1)
+var :: String -> Fix Expr
+var s = Fix (Var s)
 
-c3 = Succ (Fix c2)
+x :: Fix Expr
+x = var "x"
 
-c4 = Succ (Fix c3)
+coeff :: Int -> Fix Expr
+coeff k = var ("c" ++ show k)
 
-c5 = Succ (Fix c4)
+powN :: Fix Expr -> Int -> Fix Expr
+powN base k
+  | k < 0 = error "powN: negative exponent"
+  | otherwise = Fix (Pow base (nat k))
 
-a, b, c, d, e, f, x :: Expr (Fix Expr)
-a = Var "a"
+add :: Fix Expr -> Fix Expr -> Fix Expr
+add a b = Fix (Add a b)
 
-b = Var "b"
+mul :: Fix Expr -> Fix Expr -> Fix Expr
+mul a b = Fix (Mul a b)
 
-c = Var "c"
+-- Build a polynomial of degree n: c_n x^n + ... + c_1 x + c_0
+polyOf :: Int -> Fix Expr
+polyOf n
+  | n < 0 = error "polyOf: negative degree"
+  | n == 0 = coeff 0
+  | otherwise = foldr1 add (map term [n, n-1 .. 0])
+  where
+    term 0 = coeff 0
+    term k = mul (coeff k) (powN x k)
 
-d = Var "d"
-
-e = Var "e"
-
-f = Var "f"
-
-x = Var "x"
-
-poly1, poly2, poly3, poly4, poly5 :: Fix Expr
-poly1 = Fix (Add (Fix (Mul (Fix b) (Fix x))) (Fix a)) -- bx + a
-
-poly2 = Fix (Add (Fix (Mul (Fix c) (Fix (Pow (Fix x) (Fix c2))))) poly1) -- cx^2 + bx + a
-
-poly3 = Fix (Add (Fix (Mul (Fix d) (Fix (Pow (Fix x) (Fix c3))))) poly2) -- dx^3 + cx^2 + bx + a
-
-poly4 = Fix (Add (Fix (Mul (Fix e) (Fix (Pow (Fix x) (Fix c4))))) poly3) -- ex^4 + dx^3 + cx^2 + bx + a
-
-poly5 = Fix (Add (Fix (Mul (Fix f) (Fix (Pow (Fix x) (Fix c5))))) poly4) -- fx^5 + ex^4 + dx^3 + cx^2 + bx + a
-
-main :: IO ()
-main = do
-  print poly5
-  print (prettyPrint poly5)
-  let r = rewrite poly5
-  print r
-  print (prettyPrint r)
-  defaultMain
-    [ bench "rewrite poly5" $ whnf rewrite poly5 ]
+benchGroup :: Benchmark
+benchGroup =
+  bgroup "poly"
+    [ bench "rewrite poly5" $ whnf rewritePoly (polyOf 5)
+    , bench "rewrite poly6" $ whnf rewritePoly (polyOf 6)
+    ]
