@@ -166,23 +166,13 @@ fn mm(n: usize) {
     // println!("Initial e-graph size: {}", egraph.total_number_of_nodes());
 
     let mut runner = Runner::<Linalg, ()>::default().with_egraph(egraph);
-    let report = runner.run(&rules);
+    let _report = runner.run(&rules);
     // println!("Final e-graph size: {}", runner.egraph.total_number_of_nodes());
 
     let extractor = Extractor::new(&runner.egraph, LinalgCost);
     let best_expr = extractor.extract(&root, &runner.egraph);
-    let best_cost = LinalgCost.cost_rec(&best_expr);
+    let _best_cost = LinalgCost.cost_rec(&best_expr);
     // println!("Best expression: {}, cost: {}\n", best_expr, best_cost.cost);
-}
-
-fn median(v: &mut Vec<u128>) -> u128 {
-    v.sort();
-    let mid = v.len() / 2;
-    if v.len() % 2 == 0 {
-        (v[mid - 1] + v[mid]) / 2
-    } else {
-        v[mid]
-    }
 }
 
 fn average_ms(times: &Vec<u128>) -> f64 {
