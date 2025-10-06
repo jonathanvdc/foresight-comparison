@@ -1,6 +1,5 @@
-use std::fmt::format;
-
 use slotted_egraphs::*;
+use std::env;
 
 define_language! {
     enum Expr {
@@ -92,30 +91,21 @@ impl CostFunction<Linalg> for LinalgCost {
 
 }
 
-fn poly() {
-    let c0 = "0";
-    let c1 = format!("(succ {c0})");
-    let c2 = format!("(succ {c1})");
-    let c3 = format!("(succ {c2})");
-    let c4 = format!("(succ {c3})");
-    let c5 = format!("(succ {c4})");
+fn poly(degree: usize) {
+    let mut succs = vec!["0".to_string()];
+    for i in 1..=degree {
+        succs.push(format!("(succ {})", succs[i-1]));
+    }
 
-    let bx = format!("(* b x)");
-    let poly1 = format!("(+ {bx} a)");
-    // println!("poly1: {}", RecExpr::<Expr>::parse(&poly1).unwrap());
-    let cx2 = format!("(* c (^ x {c2}))");
-    let poly2 = format!("(+ {cx2} {poly1})");
-    // println!("poly2: {}", RecExpr::<Expr>::parse(&poly2).unwrap
-    let dx3 = format!("(* d (^ x {c3}))");
-    let poly3 = format!("(+ {dx3} {poly2})");
-    // println!("poly3: {}", RecExpr::<Expr>::parse(&poly3).unwrap
-    let ex4 = format!("(* e (^ x {c4}))");
-    let poly4 = format!("(+ {ex4} {poly3})");
-    // println!("poly4: {}", RecExpr::<Expr>::parse(&poly4).unwrap
-    let fx5 = format!("(* f (^ x {c5}))");
-    let poly5 = format!("(+ {fx5} {poly4})");
-    let poly = RecExpr::<Expr>::parse(&poly5).unwrap();
-    // println!("poly5: {}, cost: {}", poly, ExprCost.cost_rec(&poly));
+    let mut poly_expr = "a".to_string();
+    for i in 1..=degree {
+        let coeff = ((b'a' + i as u8) as char).to_string();
+        let term = format!("(* {} (^ x {}))", coeff, succs[i]);
+        poly_expr = format!("(+ {} {})", term, poly_expr);
+    }
+
+    let poly = RecExpr::<Expr>::parse(&poly_expr).unwrap();
+    // println!("poly: {}, cost: {}", poly, ExprCost.cost_rec(&poly));
     // assert!(ExprCost.cost_rec(&poly) == 4579);
 
     let add_commutativity: Rewrite<Expr, ()> = Rewrite::new("add-comm", "(+ ?a ?b)", "(+ ?b ?a)");
@@ -195,38 +185,54 @@ fn median(v: &mut Vec<u128>) -> u128 {
     }
 }
 
+fn average_ms(times: &Vec<u128>) -> f64 {
+    if times.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = times.iter().map(|&t| t as f64).sum();
+    (sum / times.len() as f64) / 1000.0
+}
+
 fn main() {
-    let total_time = 10; // seconds
-    {
-        println!("## Benchmarking poly5 for 60 seconds.");
+    // Parse the number of seconds to run from the first CLI argument; default to 60 if not provided/invalid.
+    let args: Vec<String> = env::args().collect();
+    let total_time: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(60);
+
+    let mut results: Vec<(String, f64)> = Vec::new();
+
+    // Benchmark poly
+    let poly_sizes = [5usize, 6];
+    for &degree in poly_sizes.iter() {
+        let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
-        let mut times = vec![];
         let end = start + std::time::Duration::from_secs(total_time);
         while std::time::Instant::now() < end {
             let time_start = std::time::Instant::now();
-            poly();
-            let time_end = std::time::Instant::now();
-            let duration = time_end.duration_since(time_start);
+            poly(degree);
+            let duration = std::time::Instant::now().duration_since(time_start);
             times.push(duration.as_micros());
         }
-        println!("Completed {} runs.", times.len());
-        println!("Median time per iteration: {}ms", median(&mut times) as f64 / 1000.0);
+        results.push((format!("poly{}", degree), average_ms(&times)));
     }
 
-    for n in [3, 5, 10, 20, 40, 80] {
-        println!("## Benchmarking {}mm for 60 seconds.", n);
-        let mut times = vec![];
+    // Benchmark matrix-chain multiplications
+    let mm_sizes = [40usize, 80];
+    for &n in mm_sizes.iter() {
+        let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();
         let end = start + std::time::Duration::from_secs(total_time);
         while std::time::Instant::now() < end {
             let time_start = std::time::Instant::now();
             mm(n);
-            let time_end = std::time::Instant::now();
-            let duration = time_end.duration_since(time_start);
+            let duration = std::time::Instant::now().duration_since(time_start);
             times.push(duration.as_micros());
         }
+        results.push((format!("mm{}", n), average_ms(&times)));
+    }
 
-        println!("Completed {} runs.", times.len());
-        println!("Median time per iteration: {}ms", median(&mut times) as f64 / 1000.0);
+    // Print CSV output
+    println!("benchmark,avg_ms");
+    for (name, avg_ms) in results {
+        println!("{},{}", name, avg_ms);
     }
 }
