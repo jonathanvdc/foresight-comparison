@@ -75,12 +75,12 @@ def write_combined_csv(out_path: Path, merged_rows: Dict[str, Dict[str, float]],
     print(f"[save] Combined CSV -> {out_path}")
 
 def main():
-    p = argparse.ArgumentParser(description="Run Rust benchmark projects and combine results.")
+    p = argparse.ArgumentParser(description="Run benchmark projects and combine results.")
     p.add_argument("--slotted-path", type=Path, default=Path("slotted"), help="Path to the 'slotted' project directory (contains Cargo.toml)" )
     p.add_argument("--egg-path", type=Path, default=Path("egg"), help="Path to the 'egg' project directory (contains Cargo.toml)" )
-    p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the Rust programs)" )
+    p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
-    p.add_argument("--out", type=Path, default=Path("combined.csv"), help="Output CSV path for merged results" )
+    p.add_argument("--out", type=Path, default=Path("results.csv"), help="Output CSV path for merged results" )
     p.add_argument("--force", action="store_true", help="Re-run projects even if cached CSV exists" )
     args = p.parse_args()
 

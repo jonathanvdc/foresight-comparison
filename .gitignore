@@ -2,3 +2,5 @@ target/
 .vscode/
 .idea/
 .bench_cache/
+.stack-work/
+results.csv
