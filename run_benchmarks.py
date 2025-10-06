@@ -47,6 +47,12 @@ def run_stack_and_capture_csv(project_path: Path, seconds: int, out_csv_path: Pa
         sys.stderr.write(e.stderr)
         raise
 
+def _strip_hegg_prefix(name: str) -> str:
+    idx = name.find("/rewrite ")
+    if idx != -1:
+        return name[idx + len("/rewrite "):]
+    return name
+
 def load_or_run_rust(project_name: str, project_path: Path, seconds: int, cache_dir: Path, force: bool) -> Path:
     """Return path to cached CSV for this project/seconds, running if needed."""
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -82,7 +88,8 @@ def load_or_run_hegg(project_path: Path, seconds: int, cache_dir: Path, force: b
         writer = csv.writer(f)
         writer.writerow(["benchmark", "avg_ms"])
         for name in sorted(data.keys()):
-            writer.writerow([name, f"{data[name]:.13f}"])
+            clean_name = _strip_hegg_prefix(name)
+            writer.writerow([clean_name, f"{data[name]:.13f}"])
     print(f"[save] Wrote {cache_file}")
     return cache_file
 
