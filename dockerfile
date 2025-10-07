@@ -46,6 +46,13 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
  && ~/.cargo/bin/rustc --version \
  && ~/.cargo/bin/cargo --version
 
+# Clone and install egglog and egglog-experimental
+RUN git clone https://github.com/egraphs-good/egglog-experimental.git /tmp/egglog-experimental \
+ && git clone https://github.com/egraphs-good/egglog.git /tmp/egglog \
+ && cd /tmp/egglog-experimental && ~/.cargo/bin/cargo install --path=. \
+ && cd /tmp/egglog && ~/.cargo/bin/cargo install --path=. \
+ && rm -rf /tmp/egglog /tmp/egglog-experimental
+
 # Install GHC via ghcup and use it with Stack (to avoid stack downloading/compiling GHC)
 ENV GHCUP_INSTALL_BASE_PREFIX="/home/${USERNAME}"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh \

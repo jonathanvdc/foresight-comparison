@@ -1,0 +1,56 @@
+(datatype Expr
+    (Zero :cost 1)
+    (Succ Expr :cost 1)
+    (Var String :cost 1)
+    (Add Expr Expr :cost 10)
+    (Mul Expr Expr :cost 100)
+    (Pow Expr Expr :cost 1000)
+)
+
+(let c0 (Zero))
+(let c1 (Succ c0))
+(let c2 (Succ c1))
+(let c3 (Succ c2))
+(let c4 (Succ c3))
+(let c5 (Succ c4))
+(let c6 (Succ c5))
+
+(let vx (Var "x"))
+(let va (Var "a"))
+(let vb (Var "b"))
+(let vc (Var "c"))
+(let vd (Var "d"))
+(let ve (Var "e"))
+(let vf (Var "f"))
+(let vg (Var "g"))
+
+; g + f x + e x^2 + d x^3 + c x^4 + b x^5 + a x^6
+(let poly6
+  (Add (Mul va (Pow vx c6))
+    (Add (Mul vb (Pow vx c5))
+      (Add (Mul vc (Pow vx c4))
+        (Add (Mul vd (Pow vx c3))
+          (Add (Mul ve (Pow vx c2))
+            (Add (Mul vf vx) vg)))))))
+
+(ruleset rules)
+
+; commute
+(rewrite (Add ?x ?y) (Add ?y ?x) :ruleset rules)
+(rewrite (Mul ?x ?y) (Mul ?y ?x) :ruleset rules)
+
+; associative
+(birewrite (Add ?x (Add ?y ?z)) (Add (Add ?x ?y) ?z) :ruleset rules)
+(birewrite (Mul ?x (Mul ?y ?z)) (Mul (Mul ?x ?y) ?z) :ruleset rules)
+
+; identity / exponent laws
+(rewrite (Mul ?x c1) ?x :ruleset rules)
+(rewrite (Pow ?x c0) c1 :ruleset rules)
+(rewrite (Pow ?x (Succ ?n)) (Mul ?x (Pow ?x ?n)) :ruleset rules)
+
+; distributivity (factor common term)
+(birewrite (Add (Mul ?x ?a) (Mul ?x ?b)) (Mul ?x (Add ?a ?b)) :ruleset rules)
+
+(run-schedule (saturate rules))
+
+(extract poly6)

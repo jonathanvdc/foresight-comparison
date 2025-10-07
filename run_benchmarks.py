@@ -47,11 +47,54 @@ def run_stack_and_capture_csv(project_path: Path, seconds: int, out_csv_path: Pa
         sys.stderr.write(e.stderr)
         raise
 
+def run_egglog_and_capture_csv(project_path: Path, seconds: int, egglog_bin: str, egglog_exp_bin: str) -> str:
+    """Run `python bench.py --seconds <seconds> [--egglog <egglog_bin>] [--egglog-experimental <egglog_exp_bin>]` in project_path and return stdout (CSV)."""
+    bench_py = project_path / "bench.py"
+    if not bench_py.exists():
+        raise FileNotFoundError(f"egglog bench script not found: {bench_py}")
+
+    cmd = [sys.executable, str(bench_py), "--seconds", str(seconds)]
+    if egglog_bin:
+        cmd.extend(["--egglog", egglog_bin])
+    if egglog_exp_bin:
+        cmd.extend(["--egglog-experimental", egglog_exp_bin])
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(project_path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        sys.stderr.write(f"\n[ERROR] Failed running {' '.join(cmd)} in {project_path}\n")
+        sys.stderr.write(e.stderr)
+        raise
+    return proc.stdout
+
 def _strip_hegg_prefix(name: str) -> str:
     idx = name.find("/rewrite ")
     if idx != -1:
         return name[idx + len("/rewrite "):]
     return name
+
+def load_or_run_egglog(project_path: Path, seconds: int, cache_dir: Path, force: bool, egglog_bin: str, egglog_exp_bin: str) -> Path:
+    """Return path to cached CSV for egglog/bench.py, running if needed."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"egglog_s{seconds}.csv"
+    if cache_file.exists() and not force:
+        print(f"[cache] Using existing {cache_file}")
+        return cache_file
+
+    print(f"[run] Running egglog for {seconds}s per benchmark in {project_path} ...")
+    stdout = run_egglog_and_capture_csv(project_path, seconds, egglog_bin, egglog_exp_bin)
+    if not stdout.strip().startswith("benchmark,avg_ms"):
+        print("[warn] egglog output doesn't start with 'benchmark,avg_ms'; saving anyway.")
+    cache_file.write_text(stdout, encoding="utf-8")
+    print(f"[save] Wrote {cache_file}")
+    return cache_file
 
 def load_or_run_rust(project_name: str, project_path: Path, seconds: int, cache_dir: Path, force: bool) -> Path:
     """Return path to cached CSV for this project/seconds, running if needed."""
@@ -175,6 +218,12 @@ def main():
     p = argparse.ArgumentParser(description="Run benchmark projects and combine results.")
     p.add_argument("--slotted-path", type=Path, default=Path("slotted"), help="Path to the 'slotted' project directory (contains Cargo.toml)" )
     p.add_argument("--egg-path", type=Path, default=Path("egg"), help="Path to the 'egg' project directory (contains Cargo.toml)" )
+    p.add_argument("--egglog-path", type=Path, default=Path("egglog"),
+                   help="Path to the 'egglog' project directory (contains bench.py)")
+    p.add_argument("--egglog-bin", type=str, default="egglog",
+                   help="Path or name of the egglog binary to pass through to egglog/bench.py")
+    p.add_argument("--egglog-experimental-bin", type=str, default="egglog-experimental",
+                   help="Path or name of the egglog-experimental binary to pass through to egglog/bench.py")
     p.add_argument("--hegg-path", type=Path, default=Path("hegg-bench"),
                    help="Path to the 'hegg' (Haskell/stack) project directory")
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
@@ -186,6 +235,7 @@ def main():
     # Resolve absolute paths early
     slotted_path = args.slotted_path.resolve()
     egg_path = args.egg_path.resolve()
+    egglog_path = args.egglog_path.resolve()
     hegg_path = args.hegg_path.resolve()
     cache_dir = args.cache_dir.resolve()
     out_path = args.out.resolve()
@@ -196,6 +246,10 @@ def main():
         if not cargo_toml.exists():
             p.error(f"{name} path does not look like a Cargo project (missing Cargo.toml): {path}")
 
+    egglog_bench = egglog_path / "bench.py"
+    if not egglog_bench.exists():
+        p.error(f"egglog path does not look like the expected project (missing bench.py): {egglog_path}")
+
     hegg_stack = hegg_path / "stack.yaml"
     if not hegg_stack.exists():
         p.error(f"hegg path does not look like a Stack project (missing stack.yaml): {hegg_path}")
@@ -203,15 +257,17 @@ def main():
     # Per-project run (or load from cache)
     slotted_csv = load_or_run_rust("slotted", slotted_path, args.seconds, cache_dir, args.force)
     egg_csv = load_or_run_rust("egg", egg_path, args.seconds, cache_dir, args.force)
+    egglog_csv = load_or_run_egglog(egglog_path, args.seconds, cache_dir, args.force, args.egglog_bin, args.egglog_experimental_bin)
     hegg_csv = load_or_run_hegg(hegg_path, args.seconds, cache_dir, args.force)
 
     # Read individual CSVs (all normalized to benchmark,avg_ms)
     slotted_data = read_project_csv(slotted_csv)
     egg_data = read_project_csv(egg_csv)
+    egglog_data = read_project_csv(egglog_csv)
     hegg_data = read_project_csv(hegg_csv)
 
     # Merge by benchmark name
-    all_benchmarks = set(slotted_data.keys()) | set(egg_data.keys()) | set(hegg_data.keys())
+    all_benchmarks = set(slotted_data.keys()) | set(egg_data.keys()) | set(hegg_data.keys()) | set(egglog_data.keys())
     merged: Dict[str, Dict[str, float]] = {b: {} for b in all_benchmarks}
     for b, v in slotted_data.items():
         merged[b]["slotted"] = v
@@ -219,9 +275,11 @@ def main():
         merged[b]["egg"] = v
     for b, v in hegg_data.items():
         merged[b]["hegg"] = v
+    for b, v in egglog_data.items():
+        merged[b]["egglog"] = v
 
     # Write combined
-    write_combined_csv(out_path, merged, ("slotted", "egg", "hegg"))
+    write_combined_csv(out_path, merged, ("slotted", "egg", "hegg", "egglog"))
 
 if __name__ == "__main__":
     main()
