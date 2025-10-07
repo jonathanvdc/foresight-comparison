@@ -43,6 +43,7 @@ def run_benchmark(executable: str, filename: str, duration: int) -> float:
     reported_unexpected = False
     try:
         while time.time() - start < duration:
+            start_of_iteration = time.time()
             proc = subprocess.run(
                 [executable, filename],
                 stdout=subprocess.PIPE,
@@ -62,7 +63,7 @@ def run_benchmark(executable: str, filename: str, duration: int) -> float:
                 # Expect format like: "time: 123.45ms"
                 time_ms = float(last_line.split(": ")[1].replace("ms", ""))
             except Exception:
-                time_ms = time.time() - start  # Fallback to elapsed time
+                time_ms = 1000 * (time.time() - start_of_iteration)  # Fallback to elapsed time
                 if not reported_unexpected:
                     reported_unexpected = True
                     sys.stderr.write(
@@ -100,7 +101,7 @@ def main():
     results = []  # list of (name, avg_ms)
 
     # Polynomial benchmark sizes, use standard egglog
-    poly_sizes = [5]
+    poly_sizes = [5, 6]
     for size in poly_sizes:
         fname = f"poly{size}.egg"
         avg = run_benchmark(args.egglog, fname, args.seconds)
