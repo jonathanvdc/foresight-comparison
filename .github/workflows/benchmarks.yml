@@ -1,0 +1,35 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  run-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t foresight-comparison -f dockerfile .
+
+      - name: Run benchmarks (5s per benchmark)
+        # CSV goes to stdout -> results.csv; logs go to stderr -> bench.log
+        run: |
+          set -euo pipefail
+          docker run --rm -e BENCH_SECONDS=5 foresight-comparison > results.csv 2> bench.log
+
+      - name: Show CSV in job log
+        run: cat results.csv
+
+    #   - name: Upload results.csv
+    #     uses: actions/upload-artifact@v4
+    #     with:
+    #       name: results
+    #       path: results.csv
+
