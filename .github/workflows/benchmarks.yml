@@ -1,10 +1,6 @@
 name: Benchmarks
 
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-  workflow_dispatch:
+on: push
 
 jobs:
   run-benchmarks:
@@ -19,10 +15,10 @@ jobs:
         run: docker build -t foresight-comparison -f dockerfile .
 
       - name: Run benchmarks (5s per benchmark)
-        # CSV goes to stdout -> results.csv; logs go to stderr -> bench.log
+        # CSV goes to stdout -> results.csv; logs go to stderr
         run: |
           set -euo pipefail
-          docker run --rm -e BENCH_SECONDS=5 foresight-comparison > results.csv 2> bench.log
+          docker run --rm -e BENCH_SECONDS=5 foresight-comparison > results.csv
 
       - name: Show CSV in job log
         run: cat results.csv
