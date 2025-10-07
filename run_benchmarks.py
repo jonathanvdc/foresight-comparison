@@ -61,7 +61,7 @@ def load_or_run_rust(project_name: str, project_path: Path, seconds: int, cache_
         print(f"[cache] Using existing {cache_file}")
         return cache_file
 
-    print(f"[run] Running {project_name} for {seconds}s in {project_path} ...")
+    print(f"[run] Running {project_name} for {seconds}s per benchmark in {project_path} ...")
     stdout = run_cargo_and_capture(project_path, seconds)
     # Basic sanity check: should look like CSV with header benchmark,avg_ms
     if not stdout.strip().startswith("benchmark,avg_ms"):
@@ -77,7 +77,7 @@ def load_or_run_hegg(project_path: Path, seconds: int, cache_dir: Path, force: b
         print(f"[cache] Using existing {cache_file}")
         return cache_file
 
-    print(f"[run] Running hegg for {seconds}s in {project_path} ...")
+    print(f"[run] Running hegg for {seconds}s per benchmark in {project_path} ...")
     with tempfile.TemporaryDirectory() as td:
         tmp_csv = Path(td) / "criterion_raw.csv"
         run_stack_and_capture_csv(project_path, seconds, tmp_csv)
