@@ -94,7 +94,10 @@ ENV PATH="/home/${USERNAME}/.cargo/bin:${PATH}"
 
 # Set Stack’s working directory
 ENV STACK_ROOT="/home/${USERNAME}/.stack"
+
 ENV BENCH_SECONDS=60
+# Space-separated list of thread counts to pass to run_benchmarks.py (e.g., "1 2 4 8")
+ENV FORESIGHT_THREAD_COUNTS="1"
 
 # Copy the repo into the container (optional; can also mount instead)
 COPY --chown=${USERNAME}:${USERNAME} . /workspace
@@ -108,4 +111,4 @@ RUN cd hegg-bench && stack --system-ghc --no-install-ghc build
 RUN if [ -d "/workspace/foresight" ]; then bash -lc 'cd /workspace/foresight && sbt -v about || true'; fi
 
 # Default command: run benchmarks with --seconds from env variable, redirecting all output to stderr
-CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" 1>&2 && cat results.csv"]
+CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" --foresight-thread-counts ${FORESIGHT_THREAD_COUNTS} 1>&2 && cat results.csv"]

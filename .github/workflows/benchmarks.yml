@@ -20,7 +20,7 @@ jobs:
         # CSV goes to stdout -> results.csv; logs go to stderr
         run: |
           set -euo pipefail
-          docker run --rm -e BENCH_SECONDS=5 foresight-comparison > results.csv
+          docker run --rm -e BENCH_SECONDS=5 -e FORESIGHT_THREAD_COUNTS="1 2" foresight-comparison > results.csv
 
       - name: Show CSV in job log
         run: cat results.csv
