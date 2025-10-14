@@ -206,7 +206,7 @@ fn main() {
     }
 
     // Benchmark matrix-chain multiplications
-    let mm_sizes = [40usize, 80];
+    let mm_sizes = [20usize, 40, 80];
     for &n in mm_sizes.iter() {
         let mut times: Vec<u128> = Vec::new();
         let start = std::time::Instant::now();

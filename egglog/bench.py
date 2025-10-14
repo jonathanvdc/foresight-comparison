@@ -108,7 +108,7 @@ def main():
         results.append((bench_name_from_filename(fname), avg))
 
     # Matrix multiply sizes, use experimental egglog
-    for n in [40, 80]:
+    for n in [20, 40, 80]:
         fname = f"{n}mm.egg"
         avg = run_benchmark(args.egglog_exp, fname, args.seconds)
         results.append((bench_name_from_filename(fname), avg))

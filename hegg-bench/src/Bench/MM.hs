@@ -47,6 +47,7 @@ mm n = Fix (MatMul (mm (n - 1)) (Fix (Mat 10 10)))
 benchGroup :: Benchmark
 benchGroup =
   bgroup "mm"
-    [ bench "rewrite mm40" $ whnf rewriteMM (mm 40)
+    [ bench "rewrite mm40" $ whnf rewriteMM (mm 20)
+    , bench "rewrite mm40" $ whnf rewriteMM (mm 40)
     , bench "rewrite mm80" $ whnf rewriteMM (mm 80)
     ]
