@@ -40,8 +40,8 @@ Each benchmark writes a unified CSV `results.csv` with average runtime (in ms/op
 
 The script automatically merges results from:
 - **Rust crates:** `slotted`, `egg`
-- **Haskell project:** `hegg`
-- **Python benchmark:** `egglog`
+- **Haskell Criterion:** `hegg`
+- **Command-line tools:** `egglog`
 - **Scala JMH (SBT):** `foresight`
 
 ## Continuous Integration
