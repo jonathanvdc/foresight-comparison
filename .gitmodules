@@ -1,0 +1,3 @@
+[submodule "foresight"]
+	path = foresight
+	url = git@github.com:jonathanvdc/foresight.git
