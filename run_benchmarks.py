@@ -190,7 +190,7 @@ def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, c
         print(f"[cache] Using existing {cache_file}")
         return cache_file
 
-    print(f"[run] Running Foresight JMH with threadCount={thread_count} for ~{seconds}s/iter in {project_path} ...")
+    print(f"[run] Running Foresight JMH with threadCount={thread_count} for {seconds}s per benchmark in {project_path} ...")
     with tempfile.TemporaryDirectory() as td:
         jmh_csv = Path(td) / "jmh.csv"
         run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv)
