@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Dict, Tuple
+from typing import List
 
 def run_cargo_and_capture(project_path: Path, seconds: int) -> str:
     """Run `cargo run --release -- <seconds>` in project_path and return stdout (CSV text)."""
@@ -46,6 +47,47 @@ def run_stack_and_capture_csv(project_path: Path, seconds: int, out_csv_path: Pa
         sys.stderr.write(f"\n[ERROR] Failed running {' '.join(cmd)} in {project_path}\n")
         sys.stderr.write(e.stderr)
         raise
+
+def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: int, out_csv_path: Path) -> None:
+    """
+    Run sbt JMH in `project_path` and write a CSV (JMH's reporter CSV) to `out_csv_path`.
+    We set average time mode in milliseconds, 1 fork, measurement time per iteration ~= seconds.
+    """
+    # Use sbt to run the benchmarks in the 'benchmarks' subproject if present.
+    # We ask JMH to export CSV via -rf csv -rff <file>.
+    # We set -bm avgt -tu ms so Score is ms/op; -i 1 measurement iteration with -r <seconds>.
+    jmh_args = [
+        "-i", "1",
+        "-wi", "1",
+        "-f", "1",
+        "-bm", "avgt",
+        "-tu", "ms",
+        "-rf", "csv",
+        "-rff", str(out_csv_path),
+        "-r", str(seconds),
+        "-p", f"threadCount={thread_count}",
+        ".*"
+    ]
+    # Prefer subproject 'benchmarks' if present, otherwise run jmh:run at root.
+    # We try 'benchmarks/jmh:run ...' first; if it fails, fall back to 'jmh:run ...'.
+    def _try(cmd: List[str]) -> None:
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(project_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"sbt JMH failed with command: {' '.join(cmd)}\nSTDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}") from e
+    # Build the sbt command strings with properly quoted JMH args.
+    quoted = " ".join(jmh_args)
+    try:
+        _try(["sbt", f'benchmarks/jmh:run {quoted}'])
+    except RuntimeError:
+        _try(["sbt", f'jmh:run {quoted}'])
 
 def run_egglog_and_capture_csv(project_path: Path, seconds: int, egglog_bin: str, egglog_exp_bin: str) -> str:
     """Run `python bench.py --seconds <seconds> [--egglog <egglog_bin>] [--egglog-experimental <egglog_exp_bin>]` in project_path and return stdout (CSV)."""
@@ -136,6 +178,31 @@ def load_or_run_hegg(project_path: Path, seconds: int, cache_dir: Path, force: b
     print(f"[save] Wrote {cache_file}")
     return cache_file
 
+def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, cache_dir: Path, force: bool) -> Path:
+    """
+    Return path to cached CSV for Foresight JMH at a given thread_count, running if needed.
+    The CSV saved is a normalized two-column file: benchmark,avg_ms
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"foresight_t{thread_count}_s{seconds}.csv"
+    if cache_file.exists() and not force:
+        print(f"[cache] Using existing {cache_file}")
+        return cache_file
+
+    print(f"[run] Running Foresight JMH with threadCount={thread_count} for ~{seconds}s/iter in {project_path} ...")
+    with tempfile.TemporaryDirectory() as td:
+        jmh_csv = Path(td) / "jmh.csv"
+        run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv)
+        # Parse JMH CSV and normalize to 'benchmark,avg_ms'
+        data = read_jmh_csv_to_dict(jmh_csv)
+    with cache_file.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["benchmark", "avg_ms"])
+        for name in sorted(data.keys()):
+            writer.writerow([name, f"{data[name]:.13f}"])
+    print(f"[save] Wrote {cache_file}")
+    return cache_file
+
 def read_project_csv(csv_path: Path) -> Dict[str, float]:
     """Read 'benchmark,avg_ms' CSV to dict benchmark->avg_ms."""
     out: Dict[str, float] = {}
@@ -200,6 +267,37 @@ def read_criterion_csv_to_dict(csv_path: Path) -> Dict[str, float]:
             out[name] = ms
     return out
 
+def read_jmh_csv_to_dict(csv_path: Path) -> Dict[str, float]:
+    """
+    Read JMH's CSV (-rf csv) and return dict benchmark->avg_ms.
+    Assumes we ran with -bm avgt and -tu ms so Score is in ms/op.
+    Keeps only rows where Mode == 'avgt' and Unit == 'ms/op'.
+    If a 'Param: threadCount' column exists, it is ignored for the benchmark key (we key only on the method name).
+    """
+    out: Dict[str, float] = {}
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        required = {"Benchmark", "Mode", "Score", "Unit"}
+        if not required.issubset(set(reader.fieldnames or [])):
+            raise ValueError(f"JMH CSV {csv_path} missing required columns; got {reader.fieldnames}")
+        for row in reader:
+            mode = row.get("Mode", "").strip().lower()
+            unit = row.get("Unit", "").strip().lower()
+            if mode != "avgt" or unit not in {"ms/op", "ms/op,"}:
+                continue
+            bench = row["Benchmark"].strip()
+            # Strip package prefix to a short name: e.g., com.foo.Bar.baz -> Bar.baz
+            if "." in bench:
+                parts = bench.split(".")
+                if len(parts) >= 2:
+                    bench = ".".join(parts[-2:])  # Class.method
+            try:
+                score = float(row["Score"])
+            except ValueError:
+                continue
+            out[bench] = score
+    return out
+
 def write_combined_csv(out_path: Path, merged_rows: Dict[str, Dict[str, float]], project_columns: Tuple[str, ...]):
     """Write a combined CSV with 'benchmark' + project columns."""
     fieldnames = ["benchmark", *project_columns]
@@ -226,6 +324,10 @@ def main():
                    help="Path or name of the egglog-experimental binary to pass through to egglog/bench.py")
     p.add_argument("--hegg-path", type=Path, default=Path("hegg-bench"),
                    help="Path to the 'hegg' (Haskell/stack) project directory")
+    p.add_argument("--foresight-path", type=Path, default=Path("foresight"),
+                   help="Path to the Foresight SBT project directory")
+    p.add_argument("--foresight-thread-counts", type=int, nargs="+", default=[1],
+                   help="List of Foresight threadCount values to benchmark (JMH -p threadCount=...)")
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
     p.add_argument("--out", type=Path, default=Path("results.csv"), help="Output CSV path for merged results" )
@@ -237,6 +339,7 @@ def main():
     egg_path = args.egg_path.resolve()
     egglog_path = args.egglog_path.resolve()
     hegg_path = args.hegg_path.resolve()
+    foresight_path = args.foresight_path.resolve()
     cache_dir = args.cache_dir.resolve()
     out_path = args.out.resolve()
 
@@ -254,17 +357,29 @@ def main():
     if not hegg_stack.exists():
         p.error(f"hegg path does not look like a Stack project (missing stack.yaml): {hegg_path}")
 
+    foresight_build = foresight_path / "build.sbt"
+    if not foresight_build.exists():
+        p.error(f"foresight path does not look like an SBT project (missing build.sbt): {foresight_path}")
+
     # Per-project run (or load from cache)
     slotted_csv = load_or_run_rust("slotted", slotted_path, args.seconds, cache_dir, args.force)
     egg_csv = load_or_run_rust("egg", egg_path, args.seconds, cache_dir, args.force)
     egglog_csv = load_or_run_egglog(egglog_path, args.seconds, cache_dir, args.force, args.egglog_bin, args.egglog_experimental_bin)
     hegg_csv = load_or_run_hegg(hegg_path, args.seconds, cache_dir, args.force)
 
+    foresight_csvs = []
+    for tc in args.foresight_thread_counts:
+        foresight_csvs.append((tc, load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force)))
+
     # Read individual CSVs (all normalized to benchmark,avg_ms)
     slotted_data = read_project_csv(slotted_csv)
     egg_data = read_project_csv(egg_csv)
     egglog_data = read_project_csv(egglog_csv)
     hegg_data = read_project_csv(hegg_csv)
+
+    foresight_dicts = []
+    for tc, path in foresight_csvs:
+        foresight_dicts.append((tc, read_project_csv(path)))
 
     # Merge by benchmark name
     all_benchmarks = set(slotted_data.keys()) | set(egg_data.keys()) | set(hegg_data.keys()) | set(egglog_data.keys())
@@ -278,8 +393,13 @@ def main():
     for b, v in egglog_data.items():
         merged[b]["egglog"] = v
 
-    # Write combined
-    write_combined_csv(out_path, merged, ("slotted", "egg", "hegg", "egglog"))
+    for tc, d in foresight_dicts:
+        for b, v in d.items():
+            merged.setdefault(b, {})
+            merged[b][f"foresight_t{tc}"] = v
+
+    foresight_cols = tuple(f"foresight_t{tc}" for tc, _ in foresight_csvs)
+    write_combined_csv(out_path, merged, ("slotted", "egg", "hegg", "egglog", *foresight_cols))
 
 if __name__ == "__main__":
     main()

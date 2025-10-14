@@ -21,6 +21,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
+# Install OpenJDK and sbt (Scala build tool)
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+ && mkdir -p /etc/apt/keyrings \
+ && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x99E82A75642AC823" \
+    | gpg --dearmor -o /etc/apt/keyrings/sbt-archive-keyring.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/sbt-archive-keyring.gpg] https://repo.scala-sbt.org/scalasbt/debian all main" > /etc/apt/sources.list.d/sbt.list \
+ && echo "deb [signed-by=/etc/apt/keyrings/sbt-archive-keyring.gpg] https://scala.jfrog.io/artifactory/debian all main" > /etc/apt/sources.list.d/scala.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-21-jdk \
+    sbt \
+ && rm -rf /var/lib/apt/lists/*
+
+# (Optional) JAVA_HOME is not strictly required for sbt, but some tools expect it.
+# We set it dynamically at shell init time to support multiple architectures.
+RUN echo 'export JAVA_HOME="$(dirname $(dirname $(readlink -f $(which javac))))"' > /etc/profile.d/java_home.sh \
+ && chmod +x /etc/profile.d/java_home.sh
+
 # Create a non-root user
 ARG USERNAME=builder
 ARG UID=1000
@@ -46,9 +68,13 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
  && ~/.cargo/bin/rustc --version \
  && ~/.cargo/bin/cargo --version
 
-# Clone and install egglog and egglog-experimental
+# Clone and install egglog and egglog-experimental (both at specific commits)
 RUN git clone https://github.com/egraphs-good/egglog-experimental.git /tmp/egglog-experimental \
+ && cd /tmp/egglog-experimental \
+ && git checkout 3a5608357d81ff358f114dde4fac5810570362a7 \
+ && cd / \
  && git clone https://github.com/egraphs-good/egglog.git /tmp/egglog \
+ && cd /tmp/egglog && git checkout b066a521e4710bd74034bfa71a435c26f8ac821f \
  && cd /tmp/egglog-experimental && ~/.cargo/bin/cargo install --path=. \
  && cd /tmp/egglog && ~/.cargo/bin/cargo install --path=. \
  && rm -rf /tmp/egglog /tmp/egglog-experimental
@@ -77,6 +103,9 @@ COPY --chown=${USERNAME}:${USERNAME} . /workspace
 RUN cd slotted && cargo build --release
 RUN cd egg && cargo build --release
 RUN cd hegg-bench && stack --system-ghc --no-install-ghc build
+
+# (Optional) Warm sbt caches for Foresight benchmarks if the project exists
+RUN if [ -d "/workspace/foresight" ]; then bash -lc 'cd /workspace/foresight && sbt -v about || true'; fi
 
 # Default command: run benchmarks with --seconds from env variable, redirecting all output to stderr
 CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" 1>&2 && cat results.csv"]
