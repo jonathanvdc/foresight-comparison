@@ -66,7 +66,8 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
         "-rff", str(out_csv_path),
         "-r", str(seconds),
         "-p", f"threadCount={thread_count}",
-        ".*"
+        "-p", f"mutableEGraph=true",
+        ".*(MatmulBenchmarks\\.nmm|PolyBenchmarks\\.polynomial).*"
     ]
     # Prefer subproject 'benchmarks' if present, otherwise run jmh:run at root.
     # We try 'benchmarks/jmh:run ...' first; if it fails, fall back to 'jmh:run ...'.
@@ -270,32 +271,61 @@ def read_criterion_csv_to_dict(csv_path: Path) -> Dict[str, float]:
 def read_jmh_csv_to_dict(csv_path: Path) -> Dict[str, float]:
     """
     Read JMH's CSV (-rf csv) and return dict benchmark->avg_ms.
-    Assumes we ran with -bm avgt and -tu ms so Score is in ms/op.
-    Keeps only rows where Mode == 'avgt' and Unit == 'ms/op'.
-    If a 'Param: threadCount' column exists, it is ignored for the benchmark key (we key only on the method name).
+    Assumes -bm avgt and -tu ms so Score is in ms/op.
+    Restricts to:
+      - MatmulBenchmarks.nmm        -> mm{size}
+      - PolyBenchmarks.polynomial   -> poly{size}
+    Uses 'Param: size' (case-insensitive) to derive {size}.
     """
     out: Dict[str, float] = {}
     with csv_path.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
-        required = {"Benchmark", "Mode", "Score", "Unit"}
-        if not required.issubset(set(reader.fieldnames or [])):
+        # Normalize header names to lowercase for robust matching
+        headers_lc = { (h or "").strip().lower(): (h or "") for h in (reader.fieldnames or []) }
+        required = {"benchmark", "mode", "score", "unit"}
+        if not required.issubset(set(headers_lc.keys())):
             raise ValueError(f"JMH CSV {csv_path} missing required columns; got {reader.fieldnames}")
+
+        # Find size column name case-insensitively (prefer exact 'Param: size' if present)
+        size_header = None
+        for cand in ("param: size", "param:size", "size"):
+            if cand in headers_lc:
+                size_header = headers_lc[cand]
+                break
+        # If not found by simple names, scan for any header that endswith ': size'
+        if size_header is None:
+            for k_lc, k in headers_lc.items():
+                if k_lc.endswith(": size"):
+                    size_header = k
+                    break
+
         for row in reader:
-            mode = row.get("Mode", "").strip().lower()
-            unit = row.get("Unit", "").strip().lower()
-            if mode != "avgt" or unit not in {"ms/op", "ms/op,"}:
+            mode = (row.get(headers_lc["mode"]) or "").strip().lower()
+            unit = (row.get(headers_lc["unit"]) or "").strip().lower()
+            if mode != "avgt" or not unit.startswith("ms/op"):
                 continue
-            bench = row["Benchmark"].strip()
-            # Strip package prefix to a short name: e.g., com.foo.Bar.baz -> Bar.baz
-            if "." in bench:
-                parts = bench.split(".")
-                if len(parts) >= 2:
-                    bench = ".".join(parts[-2:])  # Class.method
+
+            bench_full = (row.get(headers_lc["benchmark"]) or "").strip()
+            parts = bench_full.split(".")
+            short = ".".join(parts[-2:]) if len(parts) >= 2 else bench_full
+
+            if short not in ("MatmulBenchmarks.nmm", "PolyBenchmarks.polynomial"):
+                continue
+
+            size_val = ""
+            if size_header:
+                size_val = (row.get(size_header) or "").strip()
+            if not size_val:
+                # No size -> skip; we require size to build the mm{size}/poly{size} key
+                continue
+
             try:
-                score = float(row["Score"])
-            except ValueError:
+                score = float(row[headers_lc["score"]])
+            except (ValueError, TypeError, KeyError):
                 continue
-            out[bench] = score
+
+            key = f"mm{size_val}" if short == "MatmulBenchmarks.nmm" else f"poly{size_val}"
+            out[key] = score
     return out
 
 def write_combined_csv(out_path: Path, merged_rows: Dict[str, Dict[str, float]], project_columns: Tuple[str, ...]):
