@@ -383,6 +383,15 @@ def main():
     if not args.jmh_jvm_opts:
         args.jmh_jvm_opts = ["-XX:MaxRAMPercentage=50"]
         print("[info] JMH JVM: defaulting to -XX:MaxRAMPercentage=50 (≈50% of physical RAM). Use --jmh-jvm-opts to override.")
+        try:
+            import psutil
+            total_bytes = psutil.virtual_memory().total
+            approx_heap_bytes = total_bytes * 0.5
+            total_gb = total_bytes / (1024**3)
+            heap_gb = approx_heap_bytes / (1024**3)
+            print(f"[info] Detected physical RAM: {total_gb:.2f} GiB -> JMH heap ≈ {heap_gb:.2f} GiB (50%)")
+        except Exception as e:
+            print(f"[warn] Could not determine physical RAM for heap estimate: {e}")
 
     # Resolve absolute paths early
     slotted_path = args.slotted_path.resolve()
