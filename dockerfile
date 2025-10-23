@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     haskell-stack \
  && rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install --no-cache-dir psutil
+
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
