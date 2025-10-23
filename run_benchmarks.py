@@ -48,7 +48,7 @@ def run_stack_and_capture_csv(project_path: Path, seconds: int, out_csv_path: Pa
         sys.stderr.write(e.stderr)
         raise
 
-def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: int, out_csv_path: Path) -> None:
+def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: int, out_csv_path: Path, mutable_egraph: bool) -> None:
     """
     Run sbt JMH in `project_path` and write a CSV (JMH's reporter CSV) to `out_csv_path`.
     We set average time mode in milliseconds, 1 fork, measurement time per iteration ~= seconds.
@@ -66,7 +66,7 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
         "-rff", str(out_csv_path),
         "-r", str(seconds),
         "-p", f"threadCount={thread_count}",
-        "-p", f"mutableEGraph=true",
+        "-p", f"mutableEGraph={'true' if mutable_egraph else 'false'}",
         ".*(MatmulBenchmarks\\.nmm|PolyBenchmarks\\.polynomial).*"
     ]
     # Prefer subproject 'benchmarks' if present, otherwise run jmh:run at root.
@@ -179,21 +179,22 @@ def load_or_run_hegg(project_path: Path, seconds: int, cache_dir: Path, force: b
     print(f"[save] Wrote {cache_file}")
     return cache_file
 
-def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, cache_dir: Path, force: bool) -> Path:
+def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, cache_dir: Path, force: bool, mutable_egraph: bool) -> Path:
     """
-    Return path to cached CSV for Foresight JMH at a given thread_count, running if needed.
+    Return path to cached CSV for Foresight JMH at a given thread_count and mutable_egraph setting, running if needed.
     The CSV saved is a normalized two-column file: benchmark,avg_ms
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"foresight_t{thread_count}_s{seconds}.csv"
+    me_tag = "mut" if mutable_egraph else "imm"
+    cache_file = cache_dir / f"foresight_{me_tag}_t{thread_count}_s{seconds}.csv"
     if cache_file.exists() and not force:
         print(f"[cache] Using existing {cache_file}")
         return cache_file
 
-    print(f"[run] Running Foresight JMH with threadCount={thread_count} for {seconds}s per benchmark in {project_path} ...")
+    print(f"[run] Running Foresight JMH (mutableEGraph={'true' if mutable_egraph else 'false'}) with threadCount={thread_count} for {seconds}s per benchmark in {project_path} ...")
     with tempfile.TemporaryDirectory() as td:
         jmh_csv = Path(td) / "jmh.csv"
-        run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv)
+        run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv, mutable_egraph)
         # Parse JMH CSV and normalize to 'benchmark,avg_ms'
         data = read_jmh_csv_to_dict(jmh_csv)
     with cache_file.open("w", newline="", encoding="utf-8") as f:
@@ -358,6 +359,8 @@ def main():
                    help="Path to the Foresight SBT project directory")
     p.add_argument("--foresight-thread-counts", type=int, nargs="+", default=[1],
                    help="List of Foresight threadCount values to benchmark (JMH -p threadCount=...)")
+    p.add_argument("--foresight-mutableEGraph-values", type=str, nargs="+", default=["true", "false"], choices=["true", "false"],
+                   help="List of mutableEGraph settings to benchmark for Foresight (true/false)")
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
     p.add_argument("--out", type=Path, default=Path("results.csv"), help="Output CSV path for merged results" )
@@ -397,9 +400,12 @@ def main():
     egglog_csv = load_or_run_egglog(egglog_path, args.seconds, cache_dir, args.force, args.egglog_bin, args.egglog_experimental_bin)
     hegg_csv = load_or_run_hegg(hegg_path, args.seconds, cache_dir, args.force)
 
-    foresight_csvs = []
+    foresight_csvs = []  # list of tuples: (tc, mutable_egraph_bool, csv_path)
+    me_values: List[bool] = [ (v.lower() == "true") for v in args.foresight_mutableEGraph_values ]
     for tc in args.foresight_thread_counts:
-        foresight_csvs.append((tc, load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force)))
+        for me in me_values:
+            csv_path = load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force, me)
+            foresight_csvs.append((tc, me, csv_path))
 
     # Read individual CSVs (all normalized to benchmark,avg_ms)
     slotted_data = read_project_csv(slotted_csv)
@@ -407,9 +413,9 @@ def main():
     egglog_data = read_project_csv(egglog_csv)
     hegg_data = read_project_csv(hegg_csv)
 
-    foresight_dicts = []
-    for tc, path in foresight_csvs:
-        foresight_dicts.append((tc, read_project_csv(path)))
+    foresight_dicts = []  # list of tuples: (tc, me_bool, dict)
+    for tc, me, path in foresight_csvs:
+        foresight_dicts.append((tc, me, read_project_csv(path)))
 
     # Merge by benchmark name
     all_benchmarks = set(slotted_data.keys()) | set(egg_data.keys()) | set(hegg_data.keys()) | set(egglog_data.keys())
@@ -423,12 +429,16 @@ def main():
     for b, v in egglog_data.items():
         merged[b]["egglog"] = v
 
-    for tc, d in foresight_dicts:
+    for tc, me, d in foresight_dicts:
+        col = f"foresight_{'mut' if me else 'imm'}_t{tc}"
         for b, v in d.items():
             merged.setdefault(b, {})
-            merged[b][f"foresight_t{tc}"] = v
+            merged[b][col] = v
 
-    foresight_cols = tuple(f"foresight_t{tc}" for tc, _ in foresight_csvs)
+    # Build the ordered list of Foresight columns, preserving the order of generation
+    foresight_cols: Tuple[str, ...] = tuple(
+        f"foresight_{'mut' if me else 'imm'}_t{tc}" for (tc, me, _path) in foresight_csvs
+    )
     write_combined_csv(out_path, merged, ("slotted", "egg", "hegg", "egglog", *foresight_cols))
 
 if __name__ == "__main__":
