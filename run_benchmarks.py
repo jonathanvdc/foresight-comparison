@@ -369,7 +369,7 @@ def main():
         "--jmh-jvm-opts",
         type=str,
         nargs="+",
-        default=["-XX:MaxRAMPercentage=50"],
+        default=[],
         help="Extra JVM options for the JMH forked JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70). Defaults to 50%% of physical RAM via -XX:MaxRAMPercentage=50."
     )
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
