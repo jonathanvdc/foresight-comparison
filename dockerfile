@@ -68,13 +68,14 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
  && ~/.cargo/bin/rustc --version \
  && ~/.cargo/bin/cargo --version
 
-# Clone and install egglog and egglog-experimental (both at specific commits)
+# Clone and install egglog and egglog-experimental
 RUN git clone https://github.com/egraphs-good/egglog-experimental.git /tmp/egglog-experimental \
  && cd /tmp/egglog-experimental \
- && git checkout 3a5608357d81ff358f114dde4fac5810570362a7 \
+ # && git checkout 24e3e83016301937f285b2f2ff7889007c5c09b4 \
  && cd / \
  && git clone https://github.com/egraphs-good/egglog.git /tmp/egglog \
- && cd /tmp/egglog && git checkout b066a521e4710bd74034bfa71a435c26f8ac821f \
+ && cd /tmp/egglog \
+ # && git checkout b066a521e4710bd74034bfa71a435c26f8ac821f \
  && cd /tmp/egglog-experimental && ~/.cargo/bin/cargo install --path=. \
  && cd /tmp/egglog && ~/.cargo/bin/cargo install --path=. \
  && rm -rf /tmp/egglog /tmp/egglog-experimental
