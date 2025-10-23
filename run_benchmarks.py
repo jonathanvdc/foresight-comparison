@@ -359,7 +359,7 @@ def main():
                    help="Path to the Foresight SBT project directory")
     p.add_argument("--foresight-thread-counts", type=int, nargs="+", default=[1],
                    help="List of Foresight threadCount values to benchmark (JMH -p threadCount=...)")
-    p.add_argument("--foresight-mutableEGraph-values", type=str, nargs="+", default=["true", "false"], choices=["true", "false"],
+    p.add_argument("--foresight-mutable-egraph", type=str, nargs="+", default=["true", "false"], choices=["true", "false"],
                    help="List of mutableEGraph settings to benchmark for Foresight (true/false)")
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
@@ -401,7 +401,7 @@ def main():
     hegg_csv = load_or_run_hegg(hegg_path, args.seconds, cache_dir, args.force)
 
     foresight_csvs = []  # list of tuples: (tc, mutable_egraph_bool, csv_path)
-    me_values: List[bool] = [ (v.lower() == "true") for v in args.foresight_mutableEGraph_values ]
+    me_values: List[bool] = [ (v.lower() == "true") for v in args.foresight_mutable_egraph ]
     for tc in args.foresight_thread_counts:
         for me in me_values:
             csv_path = load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force, me)
