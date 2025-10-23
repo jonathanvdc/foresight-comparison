@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     python3 \
     python3-pip \
+    python3-psutil \
     pkg-config \
     libssl-dev \
     zlib1g-dev \
@@ -17,8 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libtinfo6 \
     haskell-stack \
  && rm -rf /var/lib/apt/lists/*
-
-RUN python3 -m pip install --no-cache-dir psutil
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
