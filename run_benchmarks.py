@@ -365,13 +365,24 @@ def main():
                    help="List of mutableEGraph settings to benchmark for Foresight (true/false)")
     p.add_argument("--sbt-jvm-opts", type=str, nargs="+", default=[],
                    help="Extra JVM options for the sbt launcher JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70)")
-    p.add_argument("--jmh-jvm-opts", type=str, nargs="+", default=[],
-                   help="Extra JVM options for the JMH forked JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70)")
+    p.add_argument(
+        "--jmh-jvm-opts",
+        type=str,
+        nargs="+",
+        default=["-XX:MaxRAMPercentage=50"],
+        help="Extra JVM options for the JMH forked JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70). Defaults to 50%% of physical RAM via -XX:MaxRAMPercentage=50."
+    )
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
     p.add_argument("--out", type=Path, default=Path("results.csv"), help="Output CSV path for merged results" )
     p.add_argument("--force", action="store_true", help="Re-run projects even if cached CSV exists" )
     args = p.parse_args()
+
+    # Default JMH forked JVM heap to ~50% of physical RAM if not overridden.
+    # This uses JDK 10+'s MaxRAMPercentage to size the heap relative to available memory (or container limit).
+    if not args.jmh_jvm_opts:
+        args.jmh_jvm_opts = ["-XX:MaxRAMPercentage=50"]
+        print("[info] JMH JVM: defaulting to -XX:MaxRAMPercentage=50 (≈50% of physical RAM). Use --jmh-jvm-opts to override.")
 
     # Resolve absolute paths early
     slotted_path = args.slotted_path.resolve()
