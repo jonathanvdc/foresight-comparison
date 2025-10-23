@@ -48,7 +48,7 @@ def run_stack_and_capture_csv(project_path: Path, seconds: int, out_csv_path: Pa
         sys.stderr.write(e.stderr)
         raise
 
-def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: int, out_csv_path: Path, mutable_egraph: bool) -> None:
+def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: int, out_csv_path: Path, mutable_egraph: bool, sbt_jvm_opts: List[str], jmh_jvm_opts: List[str]) -> None:
     """
     Run sbt JMH in `project_path` and write a CSV (JMH's reporter CSV) to `out_csv_path`.
     We set average time mode in milliseconds, 1 fork, measurement time per iteration ~= seconds.
@@ -69,8 +69,13 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
         "-p", f"mutableEGraph={'true' if mutable_egraph else 'false'}",
         ".*(MatmulBenchmarks\\.nmm|PolyBenchmarks\\.polynomial).*"
     ]
-    # Prefer subproject 'benchmarks' if present, otherwise run jmh:run at root.
-    # We try 'benchmarks/jmh:run ...' first; if it fails, fall back to 'jmh:run ...'.
+    # If we want to pass JVM args (e.g., -Xmx) to the JMH forked JVM, append them via -jvmArgsAppend
+    if jmh_jvm_opts:
+        jvm_args_str = " ".join(jmh_jvm_opts)
+        jmh_args.extend(["-jvmArgsAppend", f'"{jvm_args_str}"'])
+        
+    # Build sbt launcher JVM opts (each must be prefixed with -J for sbt)
+    sbt_prefix = ["sbt"] + [f"-J{opt}" for opt in sbt_jvm_opts]
     def _try(cmd: List[str]) -> None:
         try:
             proc = subprocess.run(
@@ -85,10 +90,7 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
             raise RuntimeError(f"sbt JMH failed with command: {' '.join(cmd)}\nSTDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}") from e
     # Build the sbt command strings with properly quoted JMH args.
     quoted = " ".join(jmh_args)
-    try:
-        _try(["sbt", f'benchmarks/jmh:run {quoted}'])
-    except RuntimeError:
-        _try(["sbt", f'jmh:run {quoted}'])
+    _try(sbt_prefix + [f'benchmarks/jmh:run {quoted}'])
 
 def run_egglog_and_capture_csv(project_path: Path, seconds: int, egglog_bin: str, egglog_exp_bin: str) -> str:
     """Run `python bench.py --seconds <seconds> [--egglog <egglog_bin>] [--egglog-experimental <egglog_exp_bin>]` in project_path and return stdout (CSV)."""
@@ -179,7 +181,7 @@ def load_or_run_hegg(project_path: Path, seconds: int, cache_dir: Path, force: b
     print(f"[save] Wrote {cache_file}")
     return cache_file
 
-def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, cache_dir: Path, force: bool, mutable_egraph: bool) -> Path:
+def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, cache_dir: Path, force: bool, mutable_egraph: bool, sbt_jvm_opts: List[str], jmh_jvm_opts: List[str]) -> Path:
     """
     Return path to cached CSV for Foresight JMH at a given thread_count and mutable_egraph setting, running if needed.
     The CSV saved is a normalized two-column file: benchmark,avg_ms
@@ -194,7 +196,7 @@ def load_or_run_foresight(project_path: Path, seconds: int, thread_count: int, c
     print(f"[run] Running Foresight JMH (mutableEGraph={'true' if mutable_egraph else 'false'}) with threadCount={thread_count} for {seconds}s per benchmark in {project_path} ...")
     with tempfile.TemporaryDirectory() as td:
         jmh_csv = Path(td) / "jmh.csv"
-        run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv, mutable_egraph)
+        run_sbt_jmh_and_capture_csv(project_path, thread_count, seconds, jmh_csv, mutable_egraph, sbt_jvm_opts, jmh_jvm_opts)
         # Parse JMH CSV and normalize to 'benchmark,avg_ms'
         data = read_jmh_csv_to_dict(jmh_csv)
     with cache_file.open("w", newline="", encoding="utf-8") as f:
@@ -361,6 +363,10 @@ def main():
                    help="List of Foresight threadCount values to benchmark (JMH -p threadCount=...)")
     p.add_argument("--foresight-mutable-egraph", type=str, nargs="+", default=["true", "false"], choices=["true", "false"],
                    help="List of mutableEGraph settings to benchmark for Foresight (true/false)")
+    p.add_argument("--sbt-jvm-opts", type=str, nargs="+", default=[],
+                   help="Extra JVM options for the sbt launcher JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70)")
+    p.add_argument("--jmh-jvm-opts", type=str, nargs="+", default=[],
+                   help="Extra JVM options for the JMH forked JVM (e.g., -Xms16g -Xmx128g or -XX:MaxRAMPercentage=70)")
     p.add_argument("--seconds", type=int, default=60, help="Seconds to run each benchmark for (passed to the benchmark programs)" )
     p.add_argument("--cache-dir", type=Path, default=Path(".bench_cache"), help="Directory to store per-project CSV outputs" )
     p.add_argument("--out", type=Path, default=Path("results.csv"), help="Output CSV path for merged results" )
@@ -404,7 +410,7 @@ def main():
     me_values: List[bool] = [ (v.lower() == "true") for v in args.foresight_mutable_egraph ]
     for tc in args.foresight_thread_counts:
         for me in me_values:
-            csv_path = load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force, me)
+            csv_path = load_or_run_foresight(foresight_path, args.seconds, tc, cache_dir, args.force, me, args.sbt_jvm_opts, args.jmh_jvm_opts)
             foresight_csvs.append((tc, me, csv_path))
 
     # Read individual CSVs (all normalized to benchmark,avg_ms)
