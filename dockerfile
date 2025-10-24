@@ -108,9 +108,7 @@ COPY --chown=${USERNAME}:${USERNAME} . /workspace
 RUN cd slotted && cargo build --release
 RUN cd egg && cargo build --release
 RUN cd hegg-bench && stack --system-ghc --no-install-ghc build
-
-# (Optional) Warm sbt caches for Foresight benchmarks if the project exists
-RUN if [ -d "/workspace/foresight" ]; then bash -lc 'cd /workspace/foresight && sbt -v about || true'; fi
+RUN cd /workspace/foresight && sbt benchmarks/jmh:compile
 
 # Default command: run benchmarks with --seconds from env variable, redirecting all output to stderr
 CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" --foresight-thread-counts ${FORESIGHT_THREAD_COUNTS} 1>&2 && cat results.csv"]
