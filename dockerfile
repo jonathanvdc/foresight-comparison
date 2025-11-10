@@ -111,4 +111,4 @@ RUN cd hegg-bench && stack --system-ghc --no-install-ghc build
 RUN cd /workspace/foresight && sbt benchmarks/jmh:compile
 
 # Default command: run benchmarks with --seconds from env variable, redirecting all output to stderr
-CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" --foresight-thread-counts ${FORESIGHT_THREAD_COUNTS} 1>&2 && cat results.csv"]
+CMD ["/bin/bash", "-lc", "python3 -u run_benchmarks.py --seconds \"${BENCH_SECONDS}\" --foresight-thread-counts ${FORESIGHT_THREAD_COUNTS} --foresight-mutable-egraph true 1>&2 && cat results.csv"]
