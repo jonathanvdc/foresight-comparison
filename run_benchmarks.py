@@ -76,7 +76,7 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
         jmh_args.extend(["-jvmArgsAppend", f'"{jvm_args_str}"'])
         
     # Build sbt launcher JVM opts (each must be prefixed with -J for sbt)
-    sbt_prefix = ["sbt"] + [f"-J{opt}" for opt in sbt_jvm_opts]
+    sbt_prefix = ["sbt", "-Dsbt.parallelExecution=false"] + [f"-J{opt}" for opt in sbt_jvm_opts]
     def _try(cmd: List[str]) -> None:
         max_attempts = 5
         last_err: Exception | None = None
