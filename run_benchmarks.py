@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, Tuple
 from typing import List
@@ -77,17 +78,40 @@ def run_sbt_jmh_and_capture_csv(project_path: Path, thread_count: int, seconds: 
     # Build sbt launcher JVM opts (each must be prefixed with -J for sbt)
     sbt_prefix = ["sbt"] + [f"-J{opt}" for opt in sbt_jvm_opts]
     def _try(cmd: List[str]) -> None:
-        try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(project_path),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"sbt JMH failed with command: {' '.join(cmd)}\nSTDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}") from e
+        max_attempts = 5
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            # sbt/JMH can occasionally leave corrupted output behind; remove the target file before retrying.
+            try:
+                if out_csv_path.exists():
+                    out_csv_path.unlink()
+            except Exception as e:
+                # Best-effort cleanup; don't fail just because we couldn't delete it.
+                sys.stderr.write(f"[warn] could not remove JMH output {out_csv_path}: {e}\n")
+
+            try:
+                subprocess.run(
+                    cmd,
+                    cwd=str(project_path),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True,
+                )
+                return
+            except subprocess.CalledProcessError as e:
+                last_err = RuntimeError(
+                    f"sbt JMH failed (attempt {attempt}/{max_attempts}) with command: {' '.join(cmd)}\n"
+                    f"STDOUT:\n{e.stdout}\nSTDERR:\n{e.stderr}"
+                )
+                # Small backoff before retrying.
+                if attempt < max_attempts:
+                    sys.stderr.write(f"[warn] sbt JMH failed on attempt {attempt}/{max_attempts}; retrying...\n")
+                    time.sleep(min(2.0 * attempt, 10.0))
+
+        # If we got here, all attempts failed.
+        assert last_err is not None
+        raise last_err
     # Build the sbt command strings with properly quoted JMH args.
     quoted = " ".join(jmh_args)
     _try(sbt_prefix + [f'benchmarks/jmh:run {quoted}'])
